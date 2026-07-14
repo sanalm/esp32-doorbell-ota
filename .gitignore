@@ -1,0 +1,10 @@
+# ESP-IDF build output directories
+build/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+
+# System and IDE files
+.vscode/
+.DS_Store
+*.pyc

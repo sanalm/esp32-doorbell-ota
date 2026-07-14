@@ -1,0 +1,41 @@
+menu "Doorbell Project Configuration"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default "YOUR_WIFI_SSID"
+        help
+            The SSID of your local Wi-Fi access point.
+
+    config WIFI_PASSWORD
+        string "WiFi Password"
+        default "YOUR_WIFI_PASSWORD"
+        help
+            The password for your Wi-Fi access point.
+
+    config MQTT_BROKER_URL
+        string "MQTT Broker URL"
+        default "YOUR_MQTT_BROKER_URL"
+        help
+            The URL to the MQTT broker.
+
+    config MQTT_TOPIC_SUB
+        string "MQTT topic subscription"
+        default "YOUR_MQTT_TOPIC_SUB"
+        help
+            The MQTT topic that the doorbell will trigger.
+
+    config IP_CAM_SNAPSHOT_URL
+        string "IP Camera URL"
+        default "YOUR_IP_CAM_SNAPSHOT_URL"
+        help
+            The URL of the external IP camera.
+
+    config TELEGRAM_BOT_TOKEN
+        string "Telegram Bot Token"
+        default "YOUR_BOT_TOKEN"
+
+    config TELEGRAM_CHAT_ID
+        string "Telegram Chat ID"
+        default "YOUR_CHAT_ID"
+
+endmenu
