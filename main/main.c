@@ -31,7 +31,7 @@ httpd_handle_t my_web_server;
 #define TELEGRAM_BOT_TOKEN    CONFIG_TELEGRAM_BOT_TOKEN
 #define TELEGRAM_CHAT_ID      CONFIG_TELEGRAM_CHAT_ID
 
-#define CURRENT_VERSION "1.0.0"
+#define CURRENT_VERSION "1.0.1"
 #define VERSION_JSON_URL "https://raw.githubusercontent.com/sanalm/esp32-doorbell-ota/main/version.json"
 
 #define FLASH_LED_PIN GPIO_NUM_4
