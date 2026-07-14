@@ -64,7 +64,10 @@ Update version in version.json in ~/workspace/doorbell
 ```idf.py build
 ```
 
-Drop in ```build/doorbell.bin``` and rename to ```firmware.bin```
+Drop in 
+```build/doorbell.bin``` 
+and rename to 
+```firmware.bin```
 
 ### Flash over serial connection
 ```On ESP-CAM, momentarily depress IO0 (which shorts it to GND)
