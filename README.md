@@ -62,7 +62,7 @@ Firmware version is compared on boot, if firmware version is different, the new 
 
 Update version in version.json in ~/workspace/doorbell and clean build
 
-Drop in ~/build/doorbell.bin and rename to irmware.bin
+Drop in ~/build/doorbell.bin and rename to firmware.bin
 
 ### Flash over serial connection
 ```On ESP-CAM, momentarily depress IO0 (which shorts it to GND)
