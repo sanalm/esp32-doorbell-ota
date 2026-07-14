@@ -60,16 +60,9 @@ Reboot ESP
 
 Firmware version is compared on boot, if firmware version is different, the new firmware is loaded
 
-Update version in version.json in ~/workspace/doorbell
-```idf.py build
-```
+Update version in version.json in ~/workspace/doorbell and clean build
 
-Drop in 
-```build/doorbell.bin
-``` 
-and rename to 
-```firmware.bin
-```
+Drop in ~/build/doorbell.bin and rename to irmware.bin
 
 ### Flash over serial connection
 ```On ESP-CAM, momentarily depress IO0 (which shorts it to GND)
