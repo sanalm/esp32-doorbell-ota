@@ -28,7 +28,7 @@ To prevent compiler errors, ensure your `main/CMakeLists.txt` registers the nece
 idf_component_register(SRCS "main.c"
                        INCLUDE_DIRS "."
                        REQUIRES esp_http_server esp_wifi esp_event esp_camera esp_https_ota)
-
+```
 
 ## Environment
 
@@ -36,45 +36,49 @@ idf_component_register(SRCS "main.c"
 Assumes IDF_PATH="$HOME/workspace/esp/esp-idf"
 
 ### configure user credentials 
-get_idf
+```get_idf
 idf.py menuconfig
+```
 
 #### Doorbell Project Configuration --->
-CONFIG_WIFI_SSID="ssid"
+```CONFIG_WIFI_SSID="ssid"
 CONFIG_WIFI_PASSWORD="password"
 CONFIG_MQTT_BROKER_URL="mqtt://ipAddress:1883"
 CONFIG_MQTT_TOPIC_SUB="home/doorbell/ind"
 CONFIG_IP_CAM_SNAPSHOT_URL="http://ipcamUrl"
 CONFIG_TELEGRAM_BOT_TOKEN="token"
 CONFIG_TELEGRAM_CHAT_ID="chatId"	
-
-## Flash firmware
-### OTA
+```
 #### Build firmware
-cd ~/workspace/doorbell
+```cd ~/workspace/doorbell
 get_idf
-
-Update version in version.json in ~/workspace/doorbell
-
 idf.py build
-
-cp build/*.bin <<<github location>>>
-
+```
 
 #### Flash OTA
 Reboot ESP
-#### Firmware version is compared on boot, if firmware version is different (update Makefile), the new firmware is loaded
+
+Firmware version is compared on boot, if firmware version is different, the new firmware is loaded
+
+Update version in version.json in ~/workspace/doorbell
+```idf.py build
+```
+
+Drop in ```build/doorbell.bin``` and rename to ```firmware.bin```
 
 ### Flash over serial connection
-On ESP-CAM, momentarily depress IO0 (which shorts it to GND)
+```On ESP-CAM, momentarily depress IO0 (which shorts it to GND)
 cd ~/workspace/doorbell
 get_idf
 idf.py fullclean
 idf.py build flash monitor -p /dev/ttyUSB0  
+```
 
 ## API
 ### HTTP GET
-http://<your-esp32-ip>/snapshot
+```http://<your-esp32-ip>/snapshot
 http://<your-esp32-ip>/reboot
+```
 
 ## TODO
+-
