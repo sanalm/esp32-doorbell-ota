@@ -14,7 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_crt_bundle.h"
-
+#include "driver/gpio.h"
 
 static const char *TAG = "DUAL_CAM_OTA_SYSTEM";
 
@@ -33,6 +33,9 @@ httpd_handle_t my_web_server;
 
 #define CURRENT_VERSION "1.0.0"
 #define VERSION_JSON_URL "https://raw.githubusercontent.com/sanalm/esp32-doorbell-ota/main/version.json"
+
+#define FLASH_LED_PIN GPIO_NUM_4
+#define DARKNESS_THRESHOLD 55  // scale of 0 (pitch black) to 255 (pure white)
 
 // --- Camera Pin Definitions (AI-Thinker) ---
 #define CAM_PIN_PWDN    32
@@ -219,9 +222,76 @@ static void send_to_telegram(const uint8_t *image_data, size_t image_len, const 
     }
 }
 
+// Helper function to calculate the average brightness of a captured frame
+uint8_t calculate_average_brightness(camera_fb_t *fb) {
+    if (fb->format != PIXFORMAT_JPEG) {
+        // If it's a raw format like Grayscale or RGB, we can average directly.
+        // For JPEG, a quick and lightweight estimation is to average a subset of bytes.
+        uint32_t total = 0;
+        uint32_t sample_count = 0;
+        // Sample every 50th byte to keep performance high and avoid lag
+        for (size_t i = 0; i < fb->len; i += 50) {
+            total += fb->buf[i];
+            sample_count++;
+        }
+        return (uint8_t)(total / sample_count);
+    }
+    
+    // For JPEG, we use a conservative estimate. 
+    // If you need perfect accuracy, configure your camera to PIXFORMAT_GRAYSCALE first.
+    uint32_t sum = 0;
+    size_t samples = fb->len > 1000 ? 1000 : fb->len;
+    for (size_t i = 0; i < samples; i++) {
+        sum += fb->buf[i];
+    }
+    return (uint8_t)(sum / samples);
+}
+
+camera_fb_t* capture_smart_snapshot(void) {
+    // 1. Initialize Flash Pin
+    gpio_reset_pin(FLASH_LED_PIN);
+    gpio_set_direction(FLASH_LED_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level(FLASH_LED_PIN, 0); // Start with flash OFF
+
+    // 2. Capture a quick, silent test frame (no flash)
+    ESP_LOGI(TAG, "Taking test frame to check light level...");
+    camera_fb_t *test_fb = esp_camera_fb_get();
+    if (!test_fb) {
+        ESP_LOGE(TAG, "Failed to capture test frame");
+        return NULL;
+    }
+
+    // 3. Analyze the ambient light
+    uint8_t brightness = calculate_average_brightness(test_fb);
+    ESP_LOGI(TAG, "Measured Ambient Brightness: %d (Threshold is %d)", brightness, DARKNESS_THRESHOLD);
+
+    // 4. Decision logic
+    if (brightness < DARKNESS_THRESHOLD) {
+        ESP_LOGW(TAG, "Scene is DARK. Retaking image with Flash enabled...");
+        
+        // Return the test frame to free up memory
+        esp_camera_fb_return(test_fb);
+
+        // Turn ON the flash
+        gpio_set_level(FLASH_LED_PIN, 1);
+        vTaskDelay(pdMS_TO_TICKS(250)); // Wait for LED to reach full brightness & sensor to adjust
+
+        // Capture the illuminated frame
+        camera_fb_t *final_fb = esp_camera_fb_get();
+
+        // Instantly turn OFF the flash
+        gpio_set_level(FLASH_LED_PIN, 0);
+
+        return final_fb; // Return the brightened picture
+    } else {
+        ESP_LOGI(TAG, "Scene is BRIGHT enough. Using daylight frame without flash.");
+        return test_fb; // Return the daylight picture
+    }
+}
+
 // --- Action Routine: Camera Pipeline ---
 static void execute_dual_camera_capture(void) {
-    camera_fb_t *fb = esp_camera_fb_get();
+    camera_fb_t *fb = capture_smart_snapshot();
     if (fb) {
         send_to_telegram(fb->buf, fb->len, "📸 Onboard view!", "esp32_cam.jpg");
         esp_camera_fb_return(fb);
@@ -287,7 +357,7 @@ esp_err_t snapshot_get_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "Taking a snapshot...");
 
     // 1. Fetch the frame from the camera driver
-    fb = esp_camera_fb_get();
+    fb = capture_smart_snapshot();
     if (!fb) {
         ESP_LOGE(TAG, "Camera capture failed");
         httpd_resp_send_500(req);
