@@ -10,6 +10,10 @@
 #include "mqtt_client.h"
 #include "esp_crt_bundle.h"
 #include "esp_http_server.h"
+#include "cJSON.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_crt_bundle.h"
 
 static const char *TAG = "DUAL_CAM_OTA_SYSTEM";
 
@@ -24,6 +28,9 @@ esp_mqtt_client_handle_t mqtt_client = NULL;
 #define IP_CAM_SNAPSHOT_URL   CONFIG_IP_CAM_SNAPSHOT_URL
 #define TELEGRAM_BOT_TOKEN    CONFIG_TELEGRAM_BOT_TOKEN
 #define TELEGRAM_CHAT_ID      CONFIG_TELEGRAM_CHAT_ID
+
+#define CURRENT_VERSION "1.0.0"
+#define VERSION_JSON_URL "https://raw.githubusercontent.com/sanalm/esp32-doorbell-ota/main/version.json"
 
 // --- Camera Pin Definitions (AI-Thinker) ---
 #define CAM_PIN_PWDN    32
@@ -42,11 +49,6 @@ esp_mqtt_client_handle_t mqtt_client = NULL;
 #define CAM_PIN_VSYNC   25
 #define CAM_PIN_HREF    23
 #define CAM_PIN_PCLK    22
-
-// --- Embedded Self-Signed Certificate Anchor ---
-// Generate this on your dev machine and place it inside your project context
-extern const char server_cert_pem_start[] asm("_binary_ca_cert_pem_start");
-extern const char server_cert_pem_end[]   asm("_binary_ca_cert_pem_end");
 
 // --- Camera Initialization ---
 static esp_err_t init_onboard_camera(void) {
@@ -73,12 +75,7 @@ static void ota_update_task(void *pvParameter) {
 
     esp_http_client_config_t http_config = {
         .url = ota_url,
-        .cert_pem = server_cert_pem_start,
-        .timeout_ms = 10000,
-        
-        // ==== CRITICAL FIXES FOR LOCAL SELF-SIGNED SSL ====
-        .skip_cert_common_name_check = true, 
-        .crt_bundle_attach = NULL, // Prevents mbedtls from hunting for global trust chains
+        .crt_bundle_attach = esp_crt_bundle_attach, 
     };
     
     esp_https_ota_config_t ota_config = {
@@ -95,6 +92,70 @@ static void ota_update_task(void *pvParameter) {
         free(ota_url);
         vTaskDelete(NULL);
     }
+}
+
+static void check_and_perform_github_ota(void *pvParameter) {
+    ESP_LOGI(TAG, "Checking for updates at %s...", VERSION_JSON_URL);
+
+    esp_http_client_config_t config = {
+    .url = VERSION_JSON_URL,
+    .timeout_ms = 8000,
+    .keep_alive_enable = true,
+    
+    .crt_bundle_attach = esp_crt_bundle_attach, 
+};    
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    esp_err_t err = esp_http_client_open(client, 0);
+
+    if (err == ESP_OK) {
+        esp_http_client_fetch_headers(client);
+        char buffer[512] = {0};
+        int read_len = esp_http_client_read(client, buffer, sizeof(buffer));
+        
+        if (read_len > 0) {
+            // Parse the version JSON
+            cJSON *json = cJSON_Parse(buffer);
+            if (json != NULL) {
+                cJSON *version = cJSON_GetObjectItemCaseSensitive(json, "version");
+                cJSON *url = cJSON_GetObjectItemCaseSensitive(json, "url");
+
+                if (cJSON_IsString(version) && cJSON_IsString(url)) {
+                    ESP_LOGI(TAG, "Latest Version on GitHub: %s (Local: %s)", version->valuestring, CURRENT_VERSION);
+
+                    // Compare versions. If different, start OTA
+                    if (strcmp(version->valuestring, CURRENT_VERSION) != 0) {
+                        ESP_LOGI(TAG, "New firmware detected. Starting OTA...");
+                        
+                        esp_http_client_config_t ota_http_config = {
+                            .url = url->valuestring,
+                            .crt_bundle_attach = esp_crt_bundle_attach,
+                        };
+                        
+                        esp_https_ota_config_t ota_config = {
+                            .http_config = &ota_http_config,
+                        };
+
+                        esp_err_t ota_res = esp_https_ota(&ota_config);
+                        if (ota_res == ESP_OK) {
+                            ESP_LOGI(TAG, "OTA Succeeded! Rebooting...");
+                            esp_restart();
+                        } else {
+                            ESP_LOGE(TAG, "OTA Flash Failed!");
+                        }
+                    } else {
+                        ESP_LOGI(TAG, "Firmware is already up-to-date.");
+                    }
+                }
+                cJSON_Delete(json);
+            }
+        }
+    } else {
+        ESP_LOGE(TAG, "Failed to connect to GitHub to check version.");
+    }
+    
+    esp_http_client_cleanup(client);
+    vTaskDelete(NULL);
 }
 
 // --- Telegram Dispatch Helper ---
@@ -165,6 +226,39 @@ static void execute_dual_camera_capture(void) {
         esp_http_client_cleanup(client);
     }
 }
+
+
+// This task runs asynchronously, waiting briefly before triggering the hard reset
+static void reboot_task(void *pvParameter) {
+    ESP_LOGI(TAG, "Reboot task active. Prepared to restart in 2 seconds...");
+    vTaskDelay(pdMS_TO_TICKS(2000)); // Delay for 2000ms (2 seconds)
+    
+    ESP_LOGW(TAG, "Rebooting hardware NOW!");
+    esp_restart(); // Triggers a hardware reset of the ESP32
+}
+
+/* HTTP GET Handler for /reboot */
+esp_err_t reboot_get_handler(httpd_req_t *req) {
+    ESP_LOGW(TAG, "Reboot request received from client.");
+
+    // 1. Send a friendly HTML response back to the client first
+    const char *resp_str = "<html><body><h1>ESP32-CAM is rebooting...</h1><p>Please wait 10 seconds before reloading.</p></body></html>";
+    httpd_resp_send(req, resp_str, strlen(resp_str));
+
+    // 2. Spawn an independent, low-priority task to perform the reboot
+    // This allows this HTTP handler function to return cleanly and close the socket connection safely.
+    xTaskCreate(&reboot_task, "reboot_task", 2048, NULL, 1, NULL);
+
+    return ESP_OK;
+}
+
+/* URI Structure Mapping the /reboot path to the handler */
+httpd_uri_t uri_reboot = {
+    .uri      = "/reboot",
+    .method   = HTTP_GET,
+    .handler  = reboot_get_handler,
+    .user_ctx = NULL
+};
 
 /* HTTP GET Handler for /snapshot */
 esp_err_t snapshot_get_handler(httpd_req_t *req) {
@@ -266,10 +360,15 @@ httpd_handle_t start_webserver(void) {
     config.server_port = 80;
 
     // Start the httpd server
-    ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
+    ESP_LOGI(TAG, "Starting webserver...");
     if (httpd_start(&server, &config) == ESP_OK) {
+
         // Register the snapshot URI handler
         httpd_register_uri_handler(server, &uri_snapshot);
+        
+        // Register the reboot URI handler
+        httpd_register_uri_handler(server, &uri_reboot);
+        
         return server;
     }
 
@@ -291,6 +390,8 @@ static void network_event_handler(void* arg, esp_event_base_t event_base, int32_
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "Successfully bound to local IP: " IPSTR, IP2STR(&event->ip_info.ip));
+
+        xTaskCreate(&check_and_perform_github_ota, "check_and_perform_github_ota", 8192, NULL, 5, NULL);
         
         // Network layer is officially live! Safe to start the MQTT transport socket now
         if (mqtt_client) {
