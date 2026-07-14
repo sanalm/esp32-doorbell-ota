@@ -15,10 +15,12 @@
 #include "freertos/task.h"
 #include "esp_crt_bundle.h"
 
+
 static const char *TAG = "DUAL_CAM_OTA_SYSTEM";
 
-// Global MQTT client handle
+// Globals
 esp_mqtt_client_handle_t mqtt_client = NULL;
+httpd_handle_t my_web_server;
 
 // --- Configurations ---
 #define WIFI_SSID             CONFIG_WIFI_SSID
@@ -127,10 +129,27 @@ static void check_and_perform_github_ota(void *pvParameter) {
                     if (strcmp(version->valuestring, CURRENT_VERSION) != 0) {
                         ESP_LOGI(TAG, "New firmware detected. Starting OTA...");
                         
+                        // ==== FREE MEMORY STEP: Stop the HTTP web server if it is running ====
+                        if (my_web_server != NULL) {
+                            ESP_LOGW(TAG, "Stopping Web Server to reclaim RAM for TLS handshake...");
+                            httpd_stop(my_web_server);
+                            my_web_server = NULL;
+                            vTaskDelay(pdMS_TO_TICKS(500)); // Allow sockets to settle and release memory
+                        }
+
+                        // Shut down the camera driver entirely to release its large frame buffers
+                        esp_camera_deinit(); 
+                        vTaskDelay(pdMS_TO_TICKS(500));
+
                         esp_http_client_config_t ota_http_config = {
                             .url = url->valuestring,
                             .crt_bundle_attach = esp_crt_bundle_attach,
-                        };
+                            // Set both buffer sizes to 4096 to easily accommodate AWS redirect headers
+                            .buffer_size = 4096,    // <--- Receive buffer (Crucial for Out of Buffer fix)
+                            .buffer_size_tx = 4096, // <--- Transmit buffer
+            
+                            .timeout_ms = 8000,
+                            .keep_alive_enable = true,                        };
                         
                         esp_https_ota_config_t ota_config = {
                             .http_config = &ota_http_config,
@@ -352,7 +371,6 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 }
 
 httpd_handle_t start_webserver(void) {
-    httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     
     // The ESP32-CAM needs a slightly larger stack size to handle large image transfers
@@ -361,15 +379,15 @@ httpd_handle_t start_webserver(void) {
 
     // Start the httpd server
     ESP_LOGI(TAG, "Starting webserver...");
-    if (httpd_start(&server, &config) == ESP_OK) {
+    if (httpd_start(&my_web_server, &config) == ESP_OK) {
 
         // Register the snapshot URI handler
-        httpd_register_uri_handler(server, &uri_snapshot);
+        httpd_register_uri_handler(my_web_server, &uri_snapshot);
         
         // Register the reboot URI handler
-        httpd_register_uri_handler(server, &uri_reboot);
+        httpd_register_uri_handler(my_web_server, &uri_reboot);
         
-        return server;
+        return my_web_server;
     }
 
     ESP_LOGE(TAG, "Error starting server!");
