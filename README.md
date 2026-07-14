@@ -1,6 +1,6 @@
 # 📸 ESP32-CAM Smart Doorbell with GitHub OTA & Telegram Alerts
 
-A lightweight, robust ESP-IDF firmware for the ESP32-CAM module. This project acts as a smart video doorbell that detects motion via a hardware PIR sensor, captures a real-time snapshot without stale frames, sends the image to a designated Telegram Group, and supports secure Over-The-Air (OTA) updates hosted on GitHub Releases.
+A lightweight, robust ESP-IDF firmware for the ESP32-CAM module. This project acts as a smart video doorbell that is receives a MQTT message on door bell push, captures a real-time snapshot, sends the image to a designated Telegram Group, and supports secure Over-The-Air (OTA) updates hosted on GitHub Releases.
 
 ---
 
