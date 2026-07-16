@@ -31,7 +31,7 @@ httpd_handle_t my_web_server;
 #define TELEGRAM_BOT_TOKEN    CONFIG_TELEGRAM_BOT_TOKEN
 #define TELEGRAM_CHAT_ID      CONFIG_TELEGRAM_CHAT_ID
 
-#define CURRENT_VERSION "1.0.1"
+#define CURRENT_VERSION "1.0.2"
 #define VERSION_JSON_URL "https://raw.githubusercontent.com/sanalm/esp32-doorbell-ota/main/version.json"
 
 #define FLASH_LED_PIN GPIO_NUM_4
@@ -491,6 +491,27 @@ static void network_event_handler(void* arg, esp_event_base_t event_base, int32_
     }
 }
 
+void wideangle_camera_sensor() {
+    sensor_t * s = esp_camera_sensor_get();
+    
+    if (s == NULL) {
+        ESP_LOGI(TAG, "No camera sensor detected or camera not initialized!");
+        return;
+    }
+
+    // 1. Enable Lens Correction (highly recommended for fisheye lenses to reduce dark edges)
+    s->set_lenc(s, 1); // 1 = Enable, 0 = Disable
+
+    // 2. Adjust Contrast and Saturation
+    // Wide-angle lenses often wash out colors slightly due to capturing more light.
+    s->set_contrast(s, 1);   // Boost contrast slightly (Range: -2 to 2)
+    s->set_saturation(s, 1); // Boost colors slightly (Range: -2 to 2)
+
+    // 3. Enable Automatic Exposure and White Balance
+    s->set_whitebal(s, 1); 
+    s->set_exposure_ctrl(s, 1);
+}
+
 void app_main(void) {
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -525,5 +546,7 @@ void app_main(void) {
     ESP_LOGI(TAG, "System initialized. Waiting for IP assignment before launching MQTT...");
 
     ESP_ERROR_CHECK(init_onboard_camera());
+
+    wideangle_camera_sensor();
 }
 
